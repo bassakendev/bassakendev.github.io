@@ -1,0 +1,312 @@
+<!DOCTYPE HTML>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestion des Fichiers dans une Application Laravel avec un Modèle de Fichier Centralisé</title>
+    <!-- Style -->
+    <!-- prism.css-->
+    <!-- <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/9000.0.1/themes/prism-coy.min.css"
+        integrity="sha512-XcB0I04SuOVkb6ewfVz0qMhU5QADIiFBFxPRRNWZUANF1W5onx8GlbHYYIivw3gXrTuZfu+1gAG8HvvKQG3oGA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" /> -->
+    <!-- Article css -->
+    <link rel="stylesheet" href="../../assets/css/article-style.css">
+</head>
+
+<body>
+    <img src="../../assets/images/file-model.jpg" alt="File Management Illustration" style="width:100%; height:auto;">
+    <h1>File Management in a Laravel Application with a Centralized File Model</h1>
+
+    <p>In this article, we will explore a structured approach to managing files on the backend of a Laravel application.
+        This method involves centralizing file management by associating them with a <code>FileModel</code>,
+        enabling more efficient control and improved traceability of files and users.
+    </p>
+
+    <p>The <code>FileModel</code> will be designed to be flexible and extensible, allowing each file to be associated
+        with
+        any model in the application. Additionally, a service called <code>FileService</code> will be used to handle
+        actions
+        such as deletion, updates, and more, facilitating overall file management.</p>
+
+    <h2>Why Use a Centralized File Model?</h2>
+
+    <p>Centralizing file management offers several advantages:</p>
+    <ul>
+        <li><strong>Traceability:</strong> Each file is associated with a specific model, allowing you to know which
+            user or
+            feature generated the file.</li>
+        <li><strong>Simplified Management:</strong> Through a dedicated service, files can be managed (updated, deleted,
+            archived) more easily without directly interacting with the file system.</li>
+        <li><strong>Facilitated Maintenance:</strong> By storing files in an organized manner and associating them with
+            models,
+            you can automate cleanup and storage management.</li>
+    </ul>
+
+    <h2><code>FileModel</code> Structure</h2>
+
+    <p>Here is the structure of the <code>FileModel</code> that we will use. This model contains the necessary
+        information
+        to associate a file with other entities in the application:</p>
+
+
+    <pre><button class="copy-btn" onclick="copyToClipboard('code1')">Copy</button>
+        <code id="code1" class="language-php">
+// App\Models\FileModel.php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class FileModel extends Model
+{
+    protected $table = 'files';
+
+    protected $fillable = [
+        'filable_type', 'filable_id', 'type', 'path'
+    ];
+
+    public function filable()
+    {
+        return $this->morphTo();
+    }
+}
+</code></pre>
+
+    <p>In this model, the <code>filable_type</code> and <code>filable_id</code> fields are used for the polymorphic
+        relationship.
+        This allows a file to be linked to any other model in the application (such as a user, product, etc.).
+        The <code>type</code> field can be used to identify the file's category or purpose (image, document, etc.),
+        and the <code>path</code> field stores the file's location.</p>
+
+    <h2>Creating the Migration</h2>
+
+    <p>Here is the migration that creates the <code>files</code> table in the database:</p>
+
+
+    <pre><button class="copy-btn" onclick="copyToClipboard('code2')">Copy</button>
+        <code id="code2" class="language-php">
+// database/migrations/2024_09_14_create_files_table.php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+class CreateFilesTable extends Migration
+{
+    public function up()
+    {
+        Schema::create('files', function (Blueprint $table) {
+            $table->id();
+            $table->string('filable_type');
+            $table->unsignedBigInteger('filable_id');
+            $table->string('type')->nullable();
+            $table->string('path');
+            $table->timestamps();
+
+            $table->index(['filable_type', 'filable_id']);
+        });
+    }
+
+    public function down()
+    {
+        Schema::dropIfExists('files');
+    }
+}
+</code></pre>
+    <p>This migration creates a table containing the fields we need for managing files polymorphically.</p>
+
+    <h2>The <code>FileService</code></h2>
+
+    <p>The <code>FileService</code> is a service class that encapsulates all logic related to file management, including
+        uploading,
+        deletion, and updating.</p>
+
+    <p>Here is an example of the <code>FileService</code> code:</p>
+
+
+    <pre><button class="copy-btn" onclick="copyToClipboard('code3')">Copy</button>
+        <code id="code3" class="language-php">
+// App\Services\FileService.php
+
+namespace App\Services;
+
+use App\Models\FileModel;
+use Illuminate\Support\Facades\Storage;
+
+class FileService
+{
+    public function store($file, $filable, $type = null)
+    {
+        $path = Storage::put('uploads', $file);
+
+        return FileModel::create([
+            'filable_type' => get_class($filable),
+            'filable_id' => $filable->id,
+            'type' => $type,
+            'path' => $path,
+        ]);
+    }
+
+    public function delete(FileModel $file)
+    {
+        Storage::delete($file->path);
+        $file->delete();
+    }
+
+    public function update(FileModel $file, $newFile)
+    {
+        Storage::delete($file->path);
+        $newPath = Storage::put('uploads', $newFile);
+        $file->update(['path' => $newPath]);
+    }
+}
+</code></pre>
+
+    <p>In this example, the <code>FileService</code> service allows for uploading a file, linking it to a specific model
+        through the <code>filable_type</code> and <code>filable_id</code> fields, and managing operations such as file
+        deletion or updates.</p>
+    <h2>Integrating <code>FileService</code> into a Controller</h2>
+    <p>To integrate the <code>FileService</code> into a controller, we will create a controller that handles file
+        uploads as well as their deletion. Here is a simple example of the integration:</p>
+
+    <pre><button class="copy-btn" onclick="copyToClipboard('code4')">Copy</button>
+        <code id="code4" class="language-php">
+        // App\Http\Controllers\FileController.php
+        
+        namespace App\Http\Controllers;
+        
+        use App\Models\FileModel;
+        use App\Services\FileService;
+        use Illuminate\Http\Request;
+        
+        class FileController extends Controller
+        {
+            protected $fileService;
+        
+            public function __construct(FileService $fileService)
+            {
+                $this->fileService = $fileService;
+            }
+        
+            public function uploadFile(Request $request)
+            {
+                $request->validate([
+                    'file' => 'required|file|mimes:jpeg,png,pdf,docx|max:2048',
+                ]);
+        
+                $file = $request->file('file');
+                $filable = auth()->user(); // For example, linking this file to the currently logged-in user.
+        
+                $uploadedFile = $this->fileService->store($file, $filable, 'document');
+        
+                return response()->json([
+                    'message' => 'File successfully uploaded!',
+                    'file' => $uploadedFile
+                ]);
+            }
+        
+            public function deleteFile(FileModel $file)
+            {
+                $this->fileService->delete($file);
+        
+                return response()->json([
+                    'message' => 'File successfully deleted!',
+                ]);
+            }
+        }
+        </code></pre>
+
+    <p>In this example:</p>
+    <ul>
+        <li><strong>Method <code>uploadFile</code>:</strong> This method validates the file upload via a POST request,
+            then uses the <code>FileService</code> to store the file and associate it with a user.</li>
+        <li><strong>Method <code>deleteFile</code>:</strong> This method takes a file as a parameter and deletes it by
+            calling the <code>delete</code> method of the <code>FileService</code>.</li>
+    </ul>
+    <p>This approach helps keep the controller code clean, as file management is entirely delegated to the service.</p>
+    <h2>Illustration with a Practical Example</h2>
+    <p>Imagine a scenario where a user wants to upload their CV in PDF format via a form:</p>
+
+    <pre><button class="copy-btn" onclick="copyToClipboard('code5')">Copy</button>
+        <code id="code5" class="language-html">
+            &lt;!-- Formulaire d'upload de fichier dans une vue Blade --&gt;
+            &lt;form action="{{ route('files.upload') }}" method="POST" enctype="multipart/form-data"&gt;
+                @csrf
+                &lt;div&gt;
+                    &lt;label for="file"&gt;Upload your CV :&lt;/label&gt;
+                    &lt;input type="file" name="file" id="file" required&gt;
+                &lt;/div&gt;
+                &lt;button type="submit"&gt;Submit&lt;/button&gt;
+            &lt;/form&gt;
+        </code>
+    </pre>
+
+
+    <p>When this form is submitted, the file is processed by the <code>uploadFile</code> method of the controller, and a
+        success message is returned with the details of the uploaded file.</p>
+    <h2>Additional Benefits of This Approach</h2>
+    <p>In addition to the previously mentioned advantages related to traceability and maintenance, this approach allows
+        for:</p>
+    <ul>
+        <li><strong>Facilitating Updates:</strong> If a user wants to replace a file (such as an updated CV), you simply
+            use the service to handle the deletion of the old file and the upload of the new one.</li>
+        <li><strong>Managing Storage:</strong> Files are stored in specific directories (e.g., <code>uploads/</code>)
+            and can be automatically deleted if necessary to free up space, especially for large or outdated files.</li>
+        <li><strong>Optimizing Security:</strong> By using Laravel's storage system, files can be protected by strict
+            access rules, and only authorized users can download them.</li>
+    </ul>
+    <h2>Centralized Storage Management</h2>
+    <p>Another strength of this approach lies in centralized storage control. With the <code>FileService</code>, it's
+        possible to effectively manage the application's storage spaces:</p>
+
+    <pre><button class="copy-btn" onclick="copyToClipboard('code6')">Copy</button>
+        <code id="code6" class="language-php">
+        // Exemple de suppression automatique des fichiers obsolètes
+        
+        public function cleanUpOldFiles()
+        {
+            $files = FileModel::where('created_at', '<', now()->subMonths(6))->get();
+        
+            foreach ($files as $file) {
+                $this->fileService->delete($file);
+            }
+        }
+        </code></pre>
+
+    <p>This function allows for cleaning up files older than six months to free up storage space.</p>
+    <h2>Conclusion</h2>
+    <p>This approach, based on a centralized file model and a dedicated file management service, not only simplifies
+        management but also improves traceability and facilitates long-term maintenance. By implementing this type of
+        structure in your Laravel applications, you will be able to optimize file management and effectively control
+        their lifecycle.</p>
+
+    <!-- Visual notification -->
+    <div id="copyNotification" class="notification">Code copied to clipboard!</div>
+
+    <!-- Prism.js JS -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/9000.0.1/prism.min.js"></script> -->
+    <!-- <script src="https://{{cdn}}/prismjs@v1.x/plugins/autoloader/prism-autoloader.min.js"></script> -->
+
+    <!-- Script pour Copy le code et afficher une notification -->
+    <script>
+        function copyToClipboard(id) {
+            const codeElement = document.getElementById(id);
+            const text = codeElement.textContent;
+
+            navigator.clipboard.writeText(text).then(() => {
+                // Afficher la notification
+                const notification = document.getElementById('copyNotification');
+                notification.classList.add('show');
+
+                // Masquer la notification après 2 secondes
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                }, 2000);
+            }, (err) => {
+                console.error('Erreur lors de la copie : ', err);
+            });
+        }
+    </script>
+
+</html>
